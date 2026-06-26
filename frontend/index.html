@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AOI Automated Optical Inspection System</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- HEADER -->
+        <header class="main-header">
+            <div class="brand">
+                <div class="logo-icon"><i class="fa-solid fa-microchip"></i></div>
+                <div class="brand-text">
+                    <h1>AOI System</h1>
+                    <span class="sub-text">Automated Optical Inspection</span>
+                </div>
+            </div>
+            
+            <div class="system-status">
+                <div class="status-indicator" id="ws-status">
+                    <span class="pulse-dot"></span>
+                    <span class="status-label">Connecting WebSocket...</span>
+                </div>
+                <div class="clock-display" id="live-clock">--:--:--</div>
+            </div>
+
+            <div class="header-actions">
+                <button class="btn btn-upload" id="btn-upload-image">
+                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                    Upload Image
+                </button>
+                <button class="btn btn-primary" id="btn-trigger-scan">
+                    <i class="fa-solid fa-camera"></i>
+                    Trigger Scan
+                </button>
+            </div>
+        </header>
+
+        <!-- DASHBOARD GRID -->
+        <main class="dashboard-grid">
+            
+            <!-- LEFT COLUMN: LIVE FEED -->
+            <section class="grid-card feed-column">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-list-check"></i> Live Inspection Feed</h2>
+                    <span class="badge" id="feed-count">0 Boards</span>
+                </div>
+                <div class="feed-list" id="inspection-feed">
+                    <!-- Dynamic feed items go here -->
+                    <div class="empty-feed">
+                        <i class="fa-solid fa-circle-nodes"></i>
+                        <p>Waiting for scan triggers...</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MIDDLE COLUMN: PCB VIEWER -->
+            <section class="grid-card viewer-column">
+                <div class="card-header">
+                    <h2><i class="fa-solid fa-eye"></i> PCB Inspection Viewer</h2>
+                    <div class="viewer-actions" id="viewer-status-container" style="display: none;">
+                        <span class="status-badge" id="selected-status">PASS</span>
+                    </div>
+                </div>
+                
+                <div class="viewer-body">
+                    <!-- Empty State -->
+                    <div class="viewer-placeholder" id="viewer-placeholder">
+                        <div class="placeholder-content">
+                            <i class="fa-solid fa-microchip icon-glow"></i>
+                            <h3>Select a PCB from the Feed</h3>
+                            <p>Or click "Trigger Scan" to capture a new board in real-time.</p>
+                        </div>
+                    </div>
+
+                    <!-- Processing State -->
+                    <div class="viewer-loader" id="viewer-loader" style="display: none;">
+                        <div class="loader-content">
+                            <div class="spinner"></div>
+                            <h3>Analyzing PCB Traces...</h3>
+                            <p>Running YOLOv11 defect detection models</p>
+                        </div>
+                    </div>
+
+                    <!-- Image Viewer Container -->
+                    <div class="pcb-container" id="pcb-container" style="display: none;">
+                        <img id="pcb-image" src="" alt="PCB Image">
+                        <canvas id="defect-canvas"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- RIGHT COLUMN: ANALYTICS & OVERRIDE -->
+            <section class="grid-card control-column">
+                
+                <!-- SUB-CARD: METRICS -->
+                <div class="control-section metrics-section">
+                    <div class="card-header">
+                        <h2><i class="fa-solid fa-chart-simple"></i> System Analytics</h2>
+                    </div>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <span class="metric-val" id="metric-total">0</span>
+                            <span class="metric-lbl">Total Scans</span>
+                        </div>
+                        <div class="metric-card yield">
+                            <span class="metric-val" id="metric-yield">0%</span>
+                            <span class="metric-lbl">Yield Rate</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SUB-CARD: OPERATOR OVERRIDE -->
+                <div class="control-section override-section">
+                    <div class="card-header">
+                        <h2><i class="fa-solid fa-user-shield"></i> Operator Console</h2>
+                    </div>
+                    <div class="override-body" id="override-form-container">
+                        <div class="board-info-row">
+                            <span class="label">Board ID:</span>
+                            <span class="val" id="info-board-id">-</span>
+                        </div>
+                        <div class="board-info-row">
+                            <span class="label">Inspection ID:</span>
+                            <span class="val" id="info-inspection-id">-</span>
+                        </div>
+                        <div class="board-info-row">
+                            <span class="label">Defects Found:</span>
+                            <span class="val text-danger" id="info-defects-count">0 found</span>
+                        </div>
+                        <div class="board-info-row">
+                            <span class="label">Severity:</span>
+                            <span class="val" id="info-severity"><span class="severity-badge none">NONE</span></span>
+                        </div>
+
+                        <!-- Defect List Detail Table -->
+                        <div class="defects-table-container" id="defects-table-container" style="display: none;">
+                            <table class="defects-table">
+                                <thead>
+                                    <tr>
+                                        <th>Class</th>
+                                        <th>Conf</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="defects-list-body">
+                                    <!-- Dynamic rows -->
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Verdict Reason Box (Phase 4) -->
+                        <div class="verdict-reason-box" id="verdict-reason-box"></div>
+
+                        <div class="divider"></div>
+
+                        <!-- Override Form -->
+                        <form id="override-form">
+                            <div class="form-group">
+                                <label>Decide Verdict Override</label>
+                                <div class="verdict-options">
+                                    <label class="verdict-btn pass">
+                                        <input type="radio" name="verdict" value="PASS" id="override-pass">
+                                        <i class="fa-solid fa-circle-check"></i> PASS
+                                    </label>
+                                    <label class="verdict-btn fail">
+                                        <input type="radio" name="verdict" value="FAIL" id="override-fail">
+                                        <i class="fa-solid fa-circle-xmark"></i> FAIL
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="operator-notes">Operator Log Notes</label>
+                                <textarea id="operator-notes" rows="3" placeholder="Enter override reason, repair log details, or notes..."></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-secondary btn-block" id="btn-save-override" disabled>
+                                <i class="fa-solid fa-floppy-disk"></i> Apply Verdict
+                            </button>
+                        </form>
+                    </div>
+                    <!-- Override Placeholder -->
+                    <div class="override-placeholder" id="override-placeholder">
+                        <p>No PCB selected for console review.</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Upload Image Modal -->
+    <div class="modal-overlay" id="upload-modal">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-cloud-arrow-up" style="color:#10b981"></i> Upload PCB Image</h3>
+                <button class="modal-close" id="btn-close-upload-modal"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div class="form-group" style="gap:4px;">
+                <label for="upload-board-id" style="font-size:12px;font-weight:600;color:var(--text-secondary);">Board ID / Serial Number</label>
+                <input
+                    type="text"
+                    id="upload-board-id"
+                    class="modal-input"
+                    placeholder="e.g. PCB-2024-001"
+                    autocomplete="off"
+                />
+            </div>
+
+            <div class="upload-zone" id="upload-zone">
+                <input type="file" id="upload-file-input" accept="image/jpeg,image/png,image/jpg">
+                <i class="fa-solid fa-image"></i>
+                <span>Drag &amp; drop or <strong>click to browse</strong></span>
+                <span class="upload-hint">JPEG or PNG &bull; max 20 MB</span>
+            </div>
+
+            <div class="upload-preview" id="upload-preview">
+                <img id="upload-preview-img" src="" alt="preview">
+                <div class="upload-preview-info">
+                    <span class="upload-preview-name" id="upload-preview-name">filename.png</span>
+                    <span class="upload-preview-size" id="upload-preview-size">0 KB</span>
+                </div>
+            </div>
+
+            <button class="btn btn-upload btn-block" id="btn-submit-upload" disabled>
+                <i class="fa-solid fa-magnifying-glass"></i>
+                Start Inspection
+            </button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>
