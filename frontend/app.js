@@ -1,9 +1,19 @@
+// ---------------------------------------------------------------------------
+// API Configuration — set RAILWAY_URL in index.html meta tag for production
+// ---------------------------------------------------------------------------
+const _meta = document.querySelector('meta[name="api-base-url"]');
+const API_BASE_URL = (_meta && _meta.content) ? _meta.content.replace(/\/$/, "") : "";
+const WS_BASE_URL = API_BASE_URL
+    ? API_BASE_URL.replace(/^http/, "ws")   // https://... → wss://...
+    : "";                                   // empty = use window.location (local)
+
 // Application State
 let inspections = [];
 let currentInspection = null;
 let ws = null;
 let reconnectDelay = 1000;
 let uploadFile = null;
+
 
 // DOM Elements
 const wsStatus = document.getElementById("ws-status");
@@ -109,7 +119,7 @@ function initClock() {
 // 2. Fetch History via REST API
 async function fetchInspections() {
     try {
-        const response = await fetch("/api/inspections/?limit=50");
+        const response = await fetch(`${API_BASE_URL}/api/inspections/?limit=50`);
         if (response.ok) {
             inspections = await response.json();
             renderFeed();
@@ -122,14 +132,22 @@ async function fetchInspections() {
 
 // 3. WebSocket Real-time Connection
 function connectWebSocket() {
-    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+    const wsUrl = WS_BASE_URL
+        ? `${WS_BASE_URL}/ws`
+        : `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`;
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
         wsStatus.className = "status-indicator connected";
         wsStatus.querySelector(".status-label").textContent = "Connected Live";
         reconnectDelay = 1000;
+
+        // Clear polling fallback if connected
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+            console.log("WebSocket connected. Cleared polling fallback.");
+        }
     };
 
     ws.onmessage = (event) => {
@@ -142,7 +160,14 @@ function connectWebSocket() {
 
     ws.onclose = () => {
         wsStatus.className = "status-indicator disconnected";
-        wsStatus.querySelector(".status-label").textContent = "Disconnected (Retrying...)";
+        wsStatus.querySelector(".status-label").textContent = "Disconnected (Polling active)";
+
+        // Start polling fallback if not already running
+        if (!pollingInterval) {
+            console.log("WebSocket disconnected. Starting polling fallback...");
+            pollingInterval = setInterval(fetchInspections, 3000);
+        }
+
         setTimeout(connectWebSocket, reconnectDelay);
         reconnectDelay = Math.min(reconnectDelay * 2, 30000);
     };
@@ -388,7 +413,7 @@ async function triggerScan() {
 
     try {
         const randomBoardId = `PCB-${Math.floor(1000 + Math.random() * 9000)}`;
-        const response = await fetch("/api/inspections/trigger", {
+        const response = await fetch(`${API_BASE_URL}/api/inspections/trigger`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ board_id: randomBoardId })
@@ -461,7 +486,7 @@ async function submitUpload() {
         formData.append("board_id", boardId);
         formData.append("file", uploadFile);
 
-        const response = await fetch("/api/inspections/upload", {
+        const response = await fetch(`${API_BASE_URL}/api/inspections/upload`, {
             method: "POST",
             body: formData
         });
@@ -494,7 +519,7 @@ async function submitOverride(event) {
     btnSaveOverride.disabled = true;
 
     try {
-        const response = await fetch(`/api/inspections/${currentInspection.id}/override`, {
+        const response = await fetch(`${API_BASE_URL}/api/inspections/${currentInspection.id}/override`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ operator_verdict: verdict, operator_notes: notes })

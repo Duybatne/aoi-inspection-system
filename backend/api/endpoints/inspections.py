@@ -1,9 +1,11 @@
 import uuid
 import logging
 import cv2
+import os
 import numpy as np
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, BackgroundTasks
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from backend.database import get_db
 from backend.models.database import Inspection, Defect
@@ -18,6 +20,20 @@ logger = logging.getLogger("InspectionsEndpoint")
 router = APIRouter()
 
 
+def dispatch_inspection_task(background_tasks: BackgroundTasks, inspection_id: int, file_name: str):
+    is_vercel = os.environ.get("VERCEL") == "1"
+    if is_vercel or not settings.CELERY_BROKER_URL:
+        logger.info(f"Vercel or Celery not configured. Running inspection {inspection_id} via FastAPI BackgroundTasks.")
+        background_tasks.add_task(run_inspection_task, inspection_id, file_name)
+    else:
+        try:
+            run_inspection_task.delay(inspection_id, file_name)
+            logger.info(f"Dispatched inspection {inspection_id} to Celery worker.")
+        except Exception as e:
+            logger.warning(f"Failed to dispatch to Celery, falling back to FastAPI BackgroundTasks: {e}")
+            background_tasks.add_task(run_inspection_task, inspection_id, file_name)
+
+
 def _create_pending_inspection(db: Session, board_id: str, file_name: str) -> Inspection:
     """Helper: upload to MinIO, create PENDING record, return it."""
     presigned_url = storage_service.get_presigned_url(file_name)
@@ -29,14 +45,18 @@ def _create_pending_inspection(db: Session, board_id: str, file_name: str) -> In
 
 
 @router.post("/trigger", response_model=InspectionResponse, status_code=status.HTTP_201_CREATED)
-def trigger_inspection(payload: InspectionCreate, db: Session = Depends(get_db)):
+def trigger_inspection(
+    payload: InspectionCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
     """
     Triggers a new PCB inspection using the configured camera (default: MockCamera).
     1. Connects to camera via CameraFactory
     2. Captures a frame
     3. Uploads to MinIO
     4. Creates PENDING inspection record
-    5. Dispatches Celery worker for inference
+    5. Dispatches Celery worker or BackgroundTask for inference
     """
     try:
         cam = CameraFactory.create(settings.CAMERA_TYPE, settings.CAMERA_ID)
@@ -55,9 +75,9 @@ def trigger_inspection(payload: InspectionCreate, db: Session = Depends(get_db))
         storage_service.upload_image(file_name, img_bytes)
 
         inspection = _create_pending_inspection(db, payload.board_id, file_name)
-        run_inspection_task.delay(inspection.id, file_name)
+        dispatch_inspection_task(background_tasks, inspection.id, file_name)
 
-        logger.info(f"Triggered async inspection {inspection.id} (PENDING) via camera capture.")
+        logger.info(f"Triggered inspection {inspection.id} (PENDING) via camera capture.")
         return inspection
 
     except Exception as e:
@@ -77,6 +97,7 @@ def trigger_inspection(payload: InspectionCreate, db: Session = Depends(get_db))
 
 @router.post("/upload", response_model=InspectionResponse, status_code=status.HTTP_201_CREATED)
 async def upload_inspection(
+    background_tasks: BackgroundTasks,
     board_id: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -119,7 +140,7 @@ async def upload_inspection(
         storage_service.upload_image(file_name, png_bytes)
 
         inspection = _create_pending_inspection(db, board_id, file_name)
-        run_inspection_task.delay(inspection.id, file_name)
+        dispatch_inspection_task(background_tasks, inspection.id, file_name)
 
         logger.info(
             f"Triggered async inspection {inspection.id} (PENDING) via image upload "
@@ -185,3 +206,12 @@ def delete_inspection(inspection_id: int, db: Session = Depends(get_db)):
     db.delete(inspection)
     db.commit()
     return None
+
+
+@router.get("/image/{file_name}")
+def get_local_image(file_name: str):
+    """Serves locally stored images (fallback storage mode)."""
+    file_path = os.path.join("/tmp/aoi_images", file_name)
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="image/png")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")

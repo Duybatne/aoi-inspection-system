@@ -9,8 +9,11 @@ logger = logging.getLogger("DatabaseConnection")
 # Use DATABASE_URL from settings
 SQLALCHEMY_DATABASE_URL = settings.DATABASE_URL
 
-# For PostgreSQL, we don't need connect_args={"check_same_thread": False}
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
+# For SQLite, we need connect_args={"check_same_thread": False}
+if SQLALCHEMY_DATABASE_URL and SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(SQLALCHEMY_DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()

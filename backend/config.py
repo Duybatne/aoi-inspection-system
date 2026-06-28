@@ -28,12 +28,13 @@ class Settings(BaseSettings):
     RABBITMQ_PASSWORD: str = "aoi_mq_password"
     CELERY_BROKER_URL: Optional[str] = None
 
-    # MinIO Configuration
-    MINIO_ENDPOINT: str = "localhost:9000"
-    MINIO_ACCESS_KEY: str = "minio_admin"
-    MINIO_SECRET_KEY: str = "minio_admin_password"
-    MINIO_SECURE: bool = False
-    MINIO_BUCKET_NAME: str = "aoi-pcb-images"
+    # Cloudinary Configuration (replaces MinIO for cloud deployment)
+    CLOUDINARY_CLOUD_NAME: str = ""
+    CLOUDINARY_API_KEY: str = ""
+    CLOUDINARY_API_SECRET: str = ""
+
+    # CORS — frontend URL (e.g. https://your-app.vercel.app)
+    FRONTEND_URL: str = "*"
 
     # Hardware Configuration
     CAMERA_TYPE: str = "mock"
