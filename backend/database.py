@@ -27,11 +27,10 @@ def get_db():
         db.close()
 
 def init_db():
-    """Initializes tables (useful for development)"""
+    """Initializes tables. Non-fatal on failure (Railway env vars may not be set yet)."""
     try:
         logger.info("Initializing database tables...")
         Base.metadata.create_all(bind=engine)
         logger.info("Database tables initialized successfully.")
     except Exception as e:
-        logger.error(f"Error initializing database: {e}")
-        raise
+        logger.error(f"Error initializing database: {e} — app will continue but DB calls may fail.")
